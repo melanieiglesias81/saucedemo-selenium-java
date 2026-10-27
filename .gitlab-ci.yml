@@ -1,0 +1,49 @@
+# GitLab CI pipeline for the SauceDemo Selenium (Java / TestNG) suite
+
+stages:
+  - test
+
+variables:
+  # Cache Maven dependencies inside the project dir so GitLab can cache them
+  MAVEN_OPTS: "-Dmaven.repo.local=$CI_PROJECT_DIR/.m2/repository"
+  MAVEN_CLI_OPTS: "--batch-mode --no-transfer-progress --errors"
+  BROWSER: "chrome"
+
+cache:
+  key:
+    files:
+      - pom.xml
+  paths:
+    - .m2/repository
+
+ui-tests:
+  stage: test
+  image: maven:3.9-eclipse-temurin-17
+  before_script:
+    # Install Google Chrome (Selenium Manager downloads the matching chromedriver at runtime)
+    - apt-get update -qq
+    - apt-get install -y -qq wget gnupg ca-certificates
+    - wget -q -O /tmp/chrome.deb https://dl.google.com/linux/direct/google-chrome-stable_current_amd64.deb
+    - apt-get install -y -qq /tmp/chrome.deb
+    - google-chrome --version
+  script:
+    - mvn $MAVEN_CLI_OPTS clean test -Dbrowser=$BROWSER -Dheadless=true
+  retry:
+    max: 1
+    when:
+      - runner_system_failure
+      - stuck_or_timeout_failure
+  timeout: 20 minutes
+  artifacts:
+    when: always          # keep reports and screenshots even when tests fail
+    expire_in: 1 week
+    paths:
+      - target/surefire-reports/
+      - target/screenshots/
+    reports:
+      junit: target/surefire-reports/TEST-*.xml   # shows results in the MR / pipeline Tests tab
+  rules:
+    - if: $CI_PIPELINE_SOURCE == "merge_request_event"
+    - if: $CI_COMMIT_BRANCH == $CI_DEFAULT_BRANCH
+    - if: $CI_PIPELINE_SOURCE == "schedule"
+    - if: $CI_PIPELINE_SOURCE == "web"
